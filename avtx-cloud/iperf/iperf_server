@@ -1,0 +1,18 @@
+#!/bin/bash
+apt-get update && apt-get upgrade -y
+apt-get install traceroute -y
+apt-get install iperf3 -y
+echo "[Unit]
+Description=iperf3 server
+
+[Service]
+ExecStart=/usr/bin/iperf3 -s -D -p 8000
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target" > /etc/systemd/system/iperf3.service
+
+systemctl daemon-reload
+systemctl enable /etc/systemd/system/iperf3.service
+systemctl start iperf3
