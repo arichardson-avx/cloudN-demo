@@ -25,6 +25,17 @@ aws_transit_cidr_1  = "10.100.0.0/22"
 aws_transit_gw_size = "c5n.4xlarge"
 aws_spoke_gw_size   = "c5n.2xlarge" 
 
+# Direct connect
+create_VIF       = true                # set to false if you want to create infrastructure before DX has been set up
+connection_id    =                     # Check "Direct Connect -> connections" 
+vlan             =                     # Check "Direct Connect -> connections" 
+vif_name         = "cloudN-demo-10Gbps"
+amazon_address   = "10.255.255.2/30 "  # DON'T change, preconfigured on the cloudN side
+amazon_side_asn  = 64512               # DON'T change, preconfigured on the cloudN side
+customer_address = "10.255.255.1/30"   # DON'T change, preconfigured on the cloudN side
+bgp_asn          = 65000               # DON'T change, preconfigured on the cloudN side
+jumbo_frames     = false               # Currently jumbo frames are disabled on cloudN and transit gateways
+
 # Spoke VPCs
 vpc_data_region_1 = {
   vpc1 = {
@@ -41,16 +52,5 @@ vpc_data_region_1 = {
 aws_iperf_instance_type   = "c5n.large"
 aws_iperf_instance_number = 1  # No of instances per AZ
 
-
-# Direct connect
-create_10G_VIF   = true                # set to false if you want to create infrastructure before DX has been set up
-connection_id    =                     # Check "Direct Connect -> connections" 
-vlan             =                     # Check "Direct Connect -> connections" 
-vif_name         = "cloudN-demo-10Gbps"
-amazon_address   = "10.255.255.2/30 "  # DON'T change, preconfigured on the cloudN side
-amazon_side_asn  = 64512               # DON'T change, preconfigured on the cloudN side
-customer_address = "10.255.255.1/30"   # DON'T change, preconfigured on the cloudN side
-bgp_asn          = 65000               # DON'T change, preconfigured on the cloudN side
-jumbo_frames     = false               # Currently jumbo frames are disabled on cloudN and transit gateways
 
 

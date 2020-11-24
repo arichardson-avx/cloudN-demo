@@ -90,7 +90,7 @@ module "aviatrix-create-iperf-servers-vpc-2" {
   private_ip_az_1       = "40"
   private_ip_az_2       = "60"
   ssh_addresses         = var.ssh_addresses
- 
+
   providers = {
     aws = aws.region_1
   }
@@ -114,7 +114,7 @@ resource "aws_vpn_gateway_attachment" "vpn_attachment" {
 }
 
 resource "aws_dx_private_virtual_interface" "aws-vif-10Gbps" {
-  count    = var.create_10G_VIF ? 1 : 0
+  count    = var.create_VIF ? 1 : 0
   provider = aws.region_1
 
   connection_id    = var.connection_id

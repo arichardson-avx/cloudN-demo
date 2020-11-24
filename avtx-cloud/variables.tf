@@ -55,7 +55,7 @@ variable create_private_ec2 {
   default = true
 }
 
-variable create_10G_VIF {}
+variable create_VIF {}
 variable connection_id {}
 variable vif_name {}
 variable vlan {}
