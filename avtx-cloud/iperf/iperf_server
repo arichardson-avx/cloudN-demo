@@ -2,6 +2,19 @@
 apt-get update && apt-get upgrade -y
 apt-get install traceroute -y
 apt-get install iperf3 -y
+echo "net.core.rmem_max=8388608
+net.core.wmem_max=8388608
+net.core.rmem_default=65536
+net.core.wmem_default=65536
+net.ipv4.tcp_rmem = 10240 87380 8388608
+net.ipv4.tcp_wmem = 10240 87380 8388608
+net.ipv4.tcp_mem= 8388608 8388608 8388608" >> /etc/sysctl.conf
+sysctl -p
+echo "sudo su -" > /home/ubuntu/.bash_history
+echo "iperf3 -V -p 8000 -P 128 -i 5 -t 30 -c 10.1.11.10" >> /home/ubuntu/.bash_history
+chown ubuntu /home/ubuntu/.bash_history
+echo "iperf3 -V -p 8000 -P 128 -i 5 -t 30 -c 10.1.11.10" > /root/.bash_history
+
 echo "[Unit]
 Description=iperf3 server
 

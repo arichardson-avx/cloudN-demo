@@ -49,7 +49,7 @@ vpc_data_region_1 = {
 }
 
 # iperf servers - configured to run iperf at boot, port 8000
-aws_iperf_instance_type   = "c5n.large"
+aws_iperf_instance_type   = "c5n.2xlarge" # c5n.large can handle max ~ 6Gbps at 1370 MTU, c5n.2xlarge maxes around 11 Gbps within VPC
 aws_iperf_instance_number = 1  # No of instances per AZ
 
 
