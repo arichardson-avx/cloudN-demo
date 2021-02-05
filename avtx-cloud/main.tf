@@ -10,6 +10,23 @@ provider "aws" {
   alias   = "region_1"
 }
 
+provider "azurerm" {
+  subscription_id = var.azure_subscription_id
+  client_id       = var.arm_application_id
+  client_secret   = var.arm_application_key
+  tenant_id       = var.arm_directory_id
+  features {}
+}
+
+resource "aviatrix_account" "azure_account" {
+  account_name        = var.azure_account_name
+  cloud_type          = 8
+  arm_subscription_id = var.azure_subscription_id
+  arm_directory_id    = var.arm_directory_id
+  arm_application_id  = var.arm_application_id
+  arm_application_key = var.arm_application_key
+}
+
 module "aviatrix-create-transit-net-area-1" {
   source = "./aws_transit"
 
@@ -48,7 +65,7 @@ module "aviatrix-create-avtx-vpcs-area-1" {
   }
 }
 
-# iperf servers
+# AWS iperf servers
 
 module "aviatrix-create-iperf-servers-vpc-1" {
   source = "./iperf"
@@ -113,7 +130,7 @@ resource "aws_vpn_gateway_attachment" "vpn_attachment" {
   vpn_gateway_id = aws_vpn_gateway.vgw.id
 }
 
-resource "aws_dx_private_virtual_interface" "aws-vif-10Gbps" {
+resource "aws_dx_private_virtual_interface" "aws_vif" {
   count    = var.create_VIF ? 1 : 0
   provider = aws.region_1
 
@@ -127,6 +144,147 @@ resource "aws_dx_private_virtual_interface" "aws-vif-10Gbps" {
   mtu              = var.jumbo_frames ? 9001 : 1500
   bgp_auth_key     = "Aviatrix123#"
   vpn_gateway_id   = aws_vpn_gateway.vgw.id
+}
+
+# Azure
+module "aviatrix-create-azure-transit-net-area-1" {
+  source = "./azure_transit"
+
+  region       = var.azure_region_1
+  account_name = var.azure_account_name
+  avtx_gw_size = var.azure_transit_gw_size # min "Standard_D3_v2" for HPE
+  vnet_name    = var.azure_transit_name_1
+  cidr         = var.azure_transit_cidr_1
+  hpe          = true
+  firenet      = false
+
+  depends_on = [aviatrix_account.azure_account]
+}
+
+module "aviatrix-create-RFC1918-sg-area-1" {
+  source = "./azure_RFC1918_sg"
+
+  region        = var.azure_region_1
+  ssh_addresses = var.ssh_addresses
+}
+
+module "aviatrix-create-avtx-vnets-area-1" {
+  source = "./azure_vnets"
+
+  region                     = var.azure_region_1
+  account_name               = var.azure_account_name
+  vnet_data                  = var.vnet_data_region_1
+  native_peering             = false
+  hpe                        = true
+  avtx_gw_size               = var.azure_spoke_gw_size
+  avx_transit_gw             = module.aviatrix-create-azure-transit-net-area-1.avtx_gw_name
+  azure_subscription_id      = var.azure_subscription_id # needed to create VMS & attach security groups
+  attach_rfc1918_sg          = true
+  public_sg_id               = module.aviatrix-create-RFC1918-sg-area-1.public_sg_id
+  private_sg_id              = module.aviatrix-create-RFC1918-sg-area-1.private_sg_id
+  create_public_vm           = var.create_public_vm
+  create_private_vm          = var.create_private_vm
+  fixed_private_ip           = true
+  private_ip                 = "10" # the last octet, module replaces xxx/xx in each subnet with this number
+  enable_public_vm_password  = false
+  enable_private_vm_password = true
+  ubuntu_password            = var.ubuntu_password
+  key_name                   = var.create_key ? tls_private_key.avtx_key[0].public_key_openssh : file("../cloudN_demo_pub.pem")
+  custom_data                = data.template_file.ubuntu_server.template
+}
+
+
+# Azure ExpressRoute
+
+resource "azurerm_express_route_circuit_peering" "er_peering" {
+  count = var.create_peering ? 1 : 0
+
+  peering_type                  = "AzurePrivatePeering"
+  express_route_circuit_name    = data.terraform_remote_state.equinix.outputs.cloudN_1_er_circuit_name
+  resource_group_name           = data.terraform_remote_state.equinix.outputs.cloudN_1_er_rg
+  peer_asn                      = var.bgp_asn
+  primary_peer_address_prefix   = var.azure_peer_prefix_pri
+  secondary_peer_address_prefix = var.azure_peer_prefix_sec
+  vlan_id                       = data.terraform_remote_state.equinix.outputs.cloudN_1_er_vlan_pri
+}
+
+resource "azurerm_virtual_network_gateway_connection" "vng_connection" {
+  count = var.create_peering ? 1 : 0
+
+  name                       = "cloudN-1"
+  location                   = var.azure_region_1
+  resource_group_name        = module.aviatrix-create-azure-transit-net-area-1.resource_group
+  type                       = "ExpressRoute"
+  virtual_network_gateway_id = azurerm_virtual_network_gateway.vng.id
+  express_route_circuit_id   = data.terraform_remote_state.equinix.outputs.cloudN_1_er_circuit_id
+
+  depends_on = [azurerm_express_route_circuit_peering.er_peering]
+}
+
+resource "azurerm_subnet" "vng_gateway" {
+  name                 = "GatewaySubnet"
+  resource_group_name  = module.aviatrix-create-azure-transit-net-area-1.resource_group
+  virtual_network_name = module.aviatrix-create-azure-transit-net-area-1.vnet_name
+  address_prefixes     = [cidrsubnet(var.azure_transit_cidr_1, 4, 15)]
+}
+
+resource "azurerm_public_ip" "vng" {
+  name                = "vng"
+  location            = var.azure_region_1
+  resource_group_name = module.aviatrix-create-azure-transit-net-area-1.resource_group
+  allocation_method   = "Dynamic"
+}
+
+resource "azurerm_virtual_network_gateway" "vng" {
+  name                = "cloudN-vng"
+  location            = var.azure_region_1
+  resource_group_name = module.aviatrix-create-azure-transit-net-area-1.resource_group
+
+  type     = "ExpressRoute"
+  vpn_type = "RouteBased"
+  sku      = "Standard" # try "High performance" for perf tests
+
+  ip_configuration {
+    public_ip_address_id          = azurerm_public_ip.vng.id
+    private_ip_address_allocation = "Dynamic"
+    subnet_id                     = azurerm_subnet.vng_gateway.id
+  }
+}
+
+module "aviatrix-create-iperf-azure-vnet-1" {
+  source = "./iperf_azure"
+
+  instance_number            = var.azure_iperf_instance_number
+  create_clients             = false
+  servers_region             = var.azure_region_1
+  instance_type              = var.azure_iperf_instance_type
+  fixed_private_ip           = var.azure_iperf_fixed_private_ip
+  private_ip                 = var.azure_iperf_private_ip
+  enable_private_vm_password = true
+  ubuntu_password            = var.ubuntu_password
+  key_name                   = var.create_key ? tls_private_key.avtx_key[0].public_key_openssh : file("../cloudN_demo_pub.pem")
+  servers_subnet_cidr_1      = module.aviatrix-create-avtx-vnets-area-1.private_subnets_cidr[0][0]
+  servers_subnet_cidr_2      = module.aviatrix-create-avtx-vnets-area-1.private_subnets_cidr[0][1]
+  servers_subnet_id_1        = module.aviatrix-create-avtx-vnets-area-1.private_subnets_id[0][0]
+  servers_subnet_id_2        = module.aviatrix-create-avtx-vnets-area-1.private_subnets_id[0][1]
+}
+
+module "aviatrix-create-iperf-azure-vnet-2" {
+  source = "./iperf_azure"
+
+  instance_number            = var.azure_iperf_instance_number
+  create_clients             = false
+  servers_region             = var.azure_region_1
+  instance_type              = var.azure_iperf_instance_type
+  fixed_private_ip           = var.azure_iperf_fixed_private_ip
+  private_ip                 = var.azure_iperf_private_ip
+  enable_private_vm_password = true
+  ubuntu_password            = var.ubuntu_password
+  key_name                   = var.create_key ? tls_private_key.avtx_key[0].public_key_openssh : file("../cloudN_demo_pub.pem")
+  servers_subnet_cidr_1      = module.aviatrix-create-avtx-vnets-area-1.private_subnets_cidr[1][0]
+  servers_subnet_cidr_2      = module.aviatrix-create-avtx-vnets-area-1.private_subnets_cidr[1][1]
+  servers_subnet_id_1        = module.aviatrix-create-avtx-vnets-area-1.private_subnets_id[1][0]
+  servers_subnet_id_2        = module.aviatrix-create-avtx-vnets-area-1.private_subnets_id[1][1]
 }
 
 data "template_file" "ubuntu_server" {
@@ -176,4 +334,12 @@ resource "aws_key_pair" "ec2_key" {
 
   key_name   = var.key_name
   public_key = tls_private_key.avtx_key[0].public_key_openssh
+}
+
+resource "aws_key_pair" "ec2_key_imported" {
+  count    = var.create_key ? 0 : 1
+  provider = aws.region_1
+
+  key_name   = var.key_name
+  public_key = file("../cloudN_demo_pub.pem")
 }
